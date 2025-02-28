@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+source /hooks/common/functions.sh
+
+hook::config() {
+  cat <<EOF
+{
+  "configVersion": "v1",
+  "kubernetes": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "executeHookOnEvent": [
+        "Deleted"
+      ],
+      "labelSelector": {
+        "matchLabels": {
+          "enable-cluster-name-substitution": "true"
+        }
+      }
+    }
+  ]
+}
+EOF
+}
+
+hook::trigger() {
+  # ignore Synchronization for simplicity
+  type=$(jq -r '.[0].type' $BINDING_CONTEXT_PATH)
+  if [[ $type == "Synchronization" ]] ; then
+    echo Got Synchronization event
+    exit 0
+  fi
+
+  for cm in $(jq -r '.[] | .object.metadata.name' $BINDING_CONTEXT_PATH)
+    do
+      if [[ $cm == *"template"* ]]; then
+      NEW_CM_NAME=$(echo $cm | sed "s/-template//g")
+
+      kubectl delete cm $NEW_CM_NAME -n cluster-name-replace
+      fi
+    done
+}
+
+common::run_hook "$@"

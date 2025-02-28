@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+source /hooks/common/functions.sh
+
+hook::config() {
+  cat <<EOF
+{
+  "configVersion":"v1",
+  "kubernetes": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "executeHookOnEvent": [
+        "Added",
+        "Modified"
+      ],
+      "labelSelector": {
+        "matchLabels": {
+          "enable-cluster-name-substitution": "true"
+        }
+      }
+    }
+  ]
+}
+EOF
+}
+
+hook::trigger() {
+  # ignore Synchronization for simplicity
+  type=$(jq -r '.[0].type' $BINDING_CONTEXT_PATH)
+  if [[ $type == "Synchronization" ]] ; then
+    echo Got Synchronization event
+    exit 0
+  fi
+
+  CLUSTER_NAME=$(kubectl get cluster -A -o json | jq '.items | first | .metadata.name' -r)
+
+  for cm in $(jq -r '.[] | .object.metadata.name' $BINDING_CONTEXT_PATH)
+  do
+    if [[ $cm == *"template"* ]]; then
+      # create a new configmap with cluster name replacement necessary data
+      NEW_CM_NAME=$(echo $cm | sed "s/-template//g")
+
+      kubectl -n cluster-name-replace get cm $cm -o json | sed "s/__CLUSTER_NAME__/$CLUSTER_NAME/g" | \
+        jq -r ".metadata.name=\"${NEW_CM_NAME}\" |
+                .metadata |= with_entries(select([.key] | inside([\"name\", \"namespace\", \"labels\"])))" \
+        | kubectl::replace_or_create
+    fi
+  done
+}
+
+common::run_hook "$@"

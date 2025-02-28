@@ -1,0 +1,82 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: default-validating-service
+  labels:
+    heritage: default
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - name: validating-webhook
+      port: 443
+      targetPort: 9680
+      protocol: TCP
+  selector:
+    app: shell-operator-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shell-operator
+  labels:
+    heritage: default
+    app: shell-operator-default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shell-operator-default
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        heritage: default
+        app: shell-operator-default
+      annotations:
+        checksum/hook: 942854d7df221e64391de2ab2c5a4b4b7117b12db6f46a62942d6687ffc1b779
+    spec:
+      containers:
+      - name: shell-operator
+        image: REPLACE_WITH_IMAGE_LOCATION
+        #image: "gcr.io/cloud-alchemists-sandbox/kamek/automation-hook-test:latest"
+        imagePullPolicy: Always
+        env:
+        - name: SHELL_OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: VALIDATING_WEBHOOK_SERVICE_NAME
+          value: "default-validating-service"
+        - name: VALIDATING_WEBHOOK_CONFIGURATION_NAME
+          value: "default"
+        livenessProbe:
+          httpGet:
+            port: 9680
+            path: /healthz
+            scheme: HTTPS
+        volumeMounts:
+        - name: validating-certs
+          mountPath: /validating-certs/
+          readOnly: true
+      serviceAccountName: shell-operator-default
+
+      volumes:
+      - name: validating-certs
+        secret:
+          secretName: default-validating-certs
